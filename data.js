@@ -82,6 +82,23 @@ export async function uploadExerciseImage(client, code, blob) {
   return path;
 }
 
+/**
+ * Zera image_path (o app volta a mostrar o ícone) e tenta apagar o objeto antigo. Lança se a gravação falhar ou
+ * não for permitida. Apagar o objeto é só limpeza: falha (ou falta de policy de delete) é ignorada.
+ */
+export async function removeExerciseImage(client, code, oldPath) {
+  const upd = await client.from('exercises').update({ image_path: null }).eq('code', code).select('code');
+  if (upd.error) throw upd.error;
+  if (!upd.data || upd.data.length !== 1) throw new Error('Sem permissão para remover a imagem.');
+  if (oldPath) {
+    try {
+      await client.storage.from(BUCKET).remove([oldPath]);
+    } catch {
+      // limpeza opcional
+    }
+  }
+}
+
 export function friendlyUploadError(err) {
   if (err?.code === 'NOT_WEBP') return NOT_WEBP_MESSAGE;
   const msg = String(err?.message ?? err ?? '');
@@ -90,4 +107,13 @@ export function friendlyUploadError(err) {
   }
   if (/network|failed to fetch/i.test(msg)) return 'Falha de conexão. Tente de novo.';
   return 'Não foi possível enviar a imagem. Tente de novo.';
+}
+
+export function friendlyRemoveError(err) {
+  const msg = String(err?.message ?? err ?? '');
+  if (/row-level security|unauthorized|not authorized|permission|permissão|403/i.test(msg)) {
+    return 'Sem permissão para remover imagens com esta conta.';
+  }
+  if (/network|failed to fetch/i.test(msg)) return 'Falha de conexão. Tente de novo.';
+  return 'Não foi possível remover a imagem. Tente de novo.';
 }

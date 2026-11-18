@@ -2,6 +2,7 @@ import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js
 import {
   KIND_LABELS, MAX_FILE_BYTES, MAX_SIDE, WEBP_QUALITY,
   isAdmin, assertWebp, fetchExercises, fetchExercise, publicImageUrl, uploadExerciseImage, friendlyUploadError,
+  removeExerciseImage, friendlyRemoveError,
 } from './data.js';
 
 const $ = (id) => document.getElementById(id);
@@ -190,6 +191,12 @@ function buildCard(ex) {
       if (f) handleFile(ex, f, card, status);
     });
     actions.append(drop);
+    if (ex.image_path) {
+      const rm = el('button', 'btn secondary small', 'Remover imagem');
+      rm.type = 'button';
+      rm.addEventListener('click', () => handleRemove(ex, rm, card, status));
+      actions.append(rm);
+    }
   }
   actions.append(status);
   body.append(actions);
@@ -269,6 +276,25 @@ async function handleFile(ex, file, card, status) {
     setStatus(status, 'Imagem salva.', 'ok');
   } catch (err) {
     setStatus(status, err?.message === 'decode' ? 'Não foi possível ler a imagem.' : friendlyUploadError(err), 'err');
+  }
+}
+
+async function handleRemove(ex, btn, card, status) {
+  if (!confirm(`Remover a imagem de ${ex.name}? O app volta a mostrar o ícone.`)) return;
+  btn.disabled = true;
+  setStatus(status, 'Removendo...');
+  try {
+    await removeExerciseImage(client, ex.code, ex.image_path);
+    const fresh = await fetchExercise(client, ex.code);
+    const idx = state.exercises.findIndex((x) => x.code === ex.code);
+    if (idx >= 0) state.exercises[idx] = fresh;
+    updateCounter();
+    const newCard = buildCard(fresh);
+    card.replaceWith(newCard);
+    setStatus(newCard.querySelector('.status'), 'Imagem removida.', 'ok');
+  } catch (err) {
+    btn.disabled = false;
+    setStatus(status, friendlyRemoveError(err), 'err');
   }
 }
 

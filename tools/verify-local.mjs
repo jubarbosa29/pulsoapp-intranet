@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(process.env.SUPABASE_JS_FROM ?? `${process.cwd()}/package.json`);
 const { createClient } = require('@supabase/supabase-js');
-const { assertWebp, friendlyUploadError, NOT_WEBP_MESSAGE, fetchExercises, fetchExercise, uploadExerciseImage, publicImageUrl, isAdmin, BUCKET } =
+const { assertWebp, friendlyUploadError, NOT_WEBP_MESSAGE, fetchExercises, fetchExercise, uploadExerciseImage, removeExerciseImage, friendlyRemoveError, publicImageUrl, isAdmin, BUCKET } =
   await import(fileURLToPath(new URL('../data.js', import.meta.url)));
 
 const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = process.env;
@@ -101,6 +101,19 @@ try {
   let threw = false;
   try { await uploadExerciseImage(fake(async () => { throw new Error('sem delete'); }), code, webp(1)); } catch { threw = true; }
   check('falha ao remover o anterior e ignorada', !threw);
+
+  // remover imagem: comum nao consegue, admin consegue
+  const cur = (await fetchExercise(adm.client, code)).image_path;
+  let failedRm = false;
+  try { await removeExerciseImage(normal.client, code, cur); } catch { failedRm = true; }
+  check('comum: removeExerciseImage falha', failedRm);
+  check('comum: image_path inalterado apos tentar remover', (await fetchExercise(adm.client, code)).image_path === cur);
+  await removeExerciseImage(adm.client, code, cur);
+  check('admin: removeExerciseImage zera image_path', (await fetchExercise(adm.client, code)).image_path === null);
+  let rmThrew = false;
+  try { await removeExerciseImage({ from: () => ({ update: () => ({ eq: () => ({ select: async () => ({ data: [{ code }], error: null }) }) }) }), storage: { from: () => ({ remove: async () => { throw new Error('sem delete'); } }) } }, code, 'x.webp'); } catch { rmThrew = true; }
+  check('falha ao apagar o objeto antigo e ignorada', !rmThrew);
+  check('mensagem de erro de remocao em portugues', /remover/.test(friendlyRemoveError(new Error('x'))));
 } finally {
   const left = await svc.storage.from(BUCKET).list('', { search: code });
   const mine = (left.data ?? []).map((o) => o.name).filter((n) => n === `${code}.webp` || n.startsWith(`${code}-`));
