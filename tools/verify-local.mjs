@@ -6,7 +6,7 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 const require = createRequire(process.env.SUPABASE_JS_FROM ?? `${process.cwd()}/package.json`);
 const { createClient } = require('@supabase/supabase-js');
-const { fetchExercises, fetchExercise, uploadExerciseImage, publicImageUrl, isAdmin, BUCKET } =
+const { assertWebp, friendlyUploadError, NOT_WEBP_MESSAGE, fetchExercises, fetchExercise, uploadExerciseImage, publicImageUrl, isAdmin, BUCKET } =
   await import(fileURLToPath(new URL('../data.js', import.meta.url)));
 
 const { API_URL, ANON_KEY, SERVICE_ROLE_KEY } = process.env;
@@ -46,6 +46,16 @@ try {
   check(`comum: fetchExercises retorna catalogo (${listN.length})`, listN.length > 100);
   const listA = await fetchExercises(adm.client);
   check('admin: fetchExercises retorna catalogo', listA.length === listN.length);
+
+  // guarda de WebP: blob PNG e recusado antes de qualquer chamada ao Supabase
+  let calls = 0;
+  const spy = { storage: { from: () => { calls++; throw new Error('chamou storage'); } }, from: () => { calls++; throw new Error('chamou from'); } };
+  let guardErr;
+  try { await uploadExerciseImage(spy, code, new Blob([Buffer.from([1, 2, 3])], { type: 'image/png' })); } catch (e) { guardErr = e; }
+  check('blob nao-webp recusado antes de qualquer upload', guardErr?.code === 'NOT_WEBP' && calls === 0);
+  check('mensagem em portugues para nao-webp', friendlyUploadError(guardErr) === NOT_WEBP_MESSAGE && /Chrome/.test(NOT_WEBP_MESSAGE));
+  let ok = true; try { assertWebp(webp(1)); } catch { ok = false; }
+  check('blob webp passa na guarda', ok);
 
   let failedN = false;
   try { await uploadExerciseImage(normal.client, code, webp(1)); } catch { failedN = true; }

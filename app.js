@@ -1,7 +1,7 @@
 import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
 import {
   KIND_LABELS, MAX_FILE_BYTES, MAX_SIDE, WEBP_QUALITY,
-  isAdmin, fetchExercises, fetchExercise, publicImageUrl, uploadExerciseImage, friendlyUploadError,
+  isAdmin, assertWebp, fetchExercises, fetchExercise, publicImageUrl, uploadExerciseImage, friendlyUploadError,
 } from './data.js';
 
 const $ = (id) => document.getElementById(id);
@@ -209,7 +209,11 @@ function toWebp(file) {
       canvas.width = Math.round(img.naturalWidth * scale);
       canvas.height = Math.round(img.naturalHeight * scale);
       canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
-      canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('webp'))), 'image/webp', WEBP_QUALITY);
+      canvas.toBlob((b) => {
+        if (!b) return reject(new Error('webp'));
+        try { assertWebp(b); } catch (e) { return reject(e); }
+        resolve(b);
+      }, 'image/webp', WEBP_QUALITY);
     };
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('decode')); };
     img.src = url;

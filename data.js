@@ -39,11 +39,23 @@ export async function fetchExercise(client, code) {
 }
 
 /** Sobe o blob webp com upsert e grava image_path. Lança em caso de erro ou de falta de permissão. */
+export const NOT_WEBP_MESSAGE = 'Este navegador não converte para WebP. Use o Chrome para subir a imagem.';
+
+/** Recusa (sem chamar o Supabase) qualquer blob que não seja WebP, p.ex. o PNG que o Safari devolve no toBlob. */
+export function assertWebp(blob) {
+  if (!blob || blob.type !== 'image/webp') {
+    const e = new Error(NOT_WEBP_MESSAGE);
+    e.code = 'NOT_WEBP';
+    throw e;
+  }
+}
+
 export async function uploadExerciseImage(client, code, blob) {
+  assertWebp(blob);
   const path = imagePathFor(code);
   const up = await client.storage.from(BUCKET).upload(path, blob, {
     upsert: true,
-    contentType: 'image/webp',
+    contentType: blob.type,
     cacheControl: '3600',
   });
   if (up.error) throw up.error;
@@ -54,6 +66,7 @@ export async function uploadExerciseImage(client, code, blob) {
 }
 
 export function friendlyUploadError(err) {
+  if (err?.code === 'NOT_WEBP') return NOT_WEBP_MESSAGE;
   const msg = String(err?.message ?? err ?? '');
   if (/row-level security|unauthorized|not authorized|permission|403/i.test(msg)) {
     return 'Sem permissão para enviar imagens com esta conta.';
