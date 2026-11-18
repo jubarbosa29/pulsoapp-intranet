@@ -77,3 +77,5 @@ details.how ol { margin: 8px 0 0; padding-left: 20px; font-size: .875rem; color:
   .grid { grid-template-columns: 1fr; }
   .toolbar { flex-direction: column; align-items: flex-start; }
 }
+
+.prompt-text { width: 100%; margin-top: 8px; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius-md); background: var(--background); color: var(--text); font-size: .8125rem; resize: vertical; }

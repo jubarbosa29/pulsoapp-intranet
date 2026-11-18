@@ -157,8 +157,20 @@ function buildCard(ex) {
   const actions = el('div', 'actions');
   const copy = el('button', 'btn secondary small', 'Copiar prompt');
   copy.type = 'button';
-  copy.addEventListener('click', () => copyPrompt(ex, copy));
   actions.append(copy);
+  const promptText = promptsData.prompts?.[ex.code];
+  let promptBox = null;
+  if (promptText) {
+    promptBox = el('details', 'how prompt');
+    promptBox.append(el('summary', null, 'Ver prompt'));
+    const ta = document.createElement('textarea');
+    ta.className = 'prompt-text'; ta.readOnly = true; ta.value = promptText; ta.rows = 6;
+    ta.setAttribute('aria-label', `Prompt de ${ex.name}`);
+    promptBox.append(ta);
+    promptBox.addEventListener('toggle', () => { if (promptBox.open) autoHeight(ta); });
+  }
+  copy.addEventListener('click', () => copyPrompt(ex, copy, promptBox));
+  if (promptBox) actions.append(promptBox);
 
   const status = el('p', 'status');
   status.setAttribute('role', 'status');
@@ -185,14 +197,26 @@ function buildCard(ex) {
   return card;
 }
 
-async function copyPrompt(ex, btn) {
+function autoHeight(ta) {
+  ta.style.height = 'auto';
+  ta.style.height = `${ta.scrollHeight + 2}px`;
+}
+
+async function copyPrompt(ex, btn, promptBox) {
   const text = promptsData.prompts?.[ex.code];
   if (!text) { btn.textContent = 'Sem prompt'; return; }
   try {
     await navigator.clipboard.writeText(text);
     btn.textContent = 'Copiado';
   } catch {
-    btn.textContent = 'Não foi possível copiar';
+    btn.textContent = 'Copie o texto abaixo';
+    if (promptBox) {
+      promptBox.open = true;
+      const ta = promptBox.querySelector('textarea');
+      autoHeight(ta);
+      ta.focus();
+      ta.select();
+    }
   }
   setTimeout(() => { btn.textContent = 'Copiar prompt'; }, 2000);
 }
