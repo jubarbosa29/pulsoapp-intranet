@@ -7,8 +7,12 @@ export const KIND_LABELS = { maquina: 'Máquina', 'peso-livre': 'Peso livre', fu
 
 export const isAdmin = (session) => session?.user?.app_metadata?.role === 'admin';
 
-export function imagePathFor(code) {
-  return `${code}.webp`;
+/**
+ * Caminho versionado: cada envio gera um objeto novo. O app guarda a imagem em disco pela URL, então trocar o
+ * arquivo no mesmo caminho nunca chegaria a quem já baixou a anterior.
+ */
+export function imagePathFor(code, version = Date.now()) {
+  return `${code}-${version}.webp`;
 }
 
 export function publicImageUrl(supabaseUrl, path, version) {
@@ -38,7 +42,6 @@ export async function fetchExercise(client, code) {
   return data;
 }
 
-/** Sobe o blob webp com upsert e grava image_path. Lança em caso de erro ou de falta de permissão. */
 export const NOT_WEBP_MESSAGE = 'Este navegador não converte para WebP. Use o Chrome para subir a imagem.';
 
 /** Recusa (sem chamar o Supabase) qualquer blob que não seja WebP, p.ex. o PNG que o Safari devolve no toBlob. */
@@ -50,11 +53,18 @@ export function assertWebp(blob) {
   }
 }
 
+/**
+ * Sobe o blob webp num caminho versionado, grava image_path e tenta apagar o objeto anterior.
+ * Lança em caso de erro ou de falta de permissão no envio ou na gravação do caminho. A remoção do anterior é
+ * só limpeza: falha (ou falta de policy de delete no bucket) é ignorada e o objeto antigo fica no bucket.
+ */
 export async function uploadExerciseImage(client, code, blob) {
   assertWebp(blob);
+  const prev = await client.from('exercises').select('image_path').eq('code', code).maybeSingle();
+  const previousPath = prev.error ? null : (prev.data?.image_path ?? null);
   const path = imagePathFor(code);
   const up = await client.storage.from(BUCKET).upload(path, blob, {
-    upsert: true,
+    upsert: false,
     contentType: blob.type,
     cacheControl: '3600',
   });
@@ -62,6 +72,13 @@ export async function uploadExerciseImage(client, code, blob) {
   const upd = await client.from('exercises').update({ image_path: path }).eq('code', code).select('code');
   if (upd.error) throw upd.error;
   if (!upd.data || upd.data.length !== 1) throw new Error('Sem permissão para gravar o caminho da imagem.');
+  if (previousPath && previousPath !== path) {
+    try {
+      await client.storage.from(BUCKET).remove([previousPath]);
+    } catch {
+      // limpeza opcional
+    }
+  }
   return path;
 }
 

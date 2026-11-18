@@ -62,22 +62,49 @@ try {
   check('comum: uploadExerciseImage falha', failedN);
   check('comum: image_path inalterado', (await fetchExercise(normal.client, code)).image_path === originalPath);
 
+  const versioned = (p) => new RegExp(`^${code}-\\d+\\.webp$`).test(p ?? '');
   const p1 = await uploadExerciseImage(adm.client, code, webp(1));
-  check('admin: upload 1 retorna <code>.webp', p1 === `${code}.webp`);
-  check('admin: image_path gravado', (await fetchExercise(adm.client, code)).image_path === `${code}.webp`);
-  const url = publicImageUrl(API_URL, p1, Date.now());
-  const r1 = await fetch(url);
+  check('admin: upload 1 retorna <code>-<timestamp>.webp', versioned(p1));
+  check('admin: image_path gravado', (await fetchExercise(adm.client, code)).image_path === p1);
+  const r1 = await fetch(publicImageUrl(API_URL, p1));
   const len1 = (await r1.arrayBuffer()).byteLength;
   check('imagem publica acessivel (sem login)', r1.ok);
 
+  await new Promise((r) => setTimeout(r, 5)); // timestamps distintos
   const p2 = await uploadExerciseImage(adm.client, code, webp(2));
-  const r2 = await fetch(publicImageUrl(API_URL, p2, Date.now() + 1));
+  check('admin: segundo upload gera caminho novo (URL nova para o cache do app)', versioned(p2) && p2 !== p1);
+  check('admin: image_path aponta para o caminho novo', (await fetchExercise(adm.client, code)).image_path === p2);
+  const r2 = await fetch(publicImageUrl(API_URL, p2));
   const len2 = (await r2.arrayBuffer()).byteLength;
-  check('admin: segundo upload substitui (upsert)', p2 === p1 && r2.ok && len2 === len1 + 1);
+  check('imagem nova publica e com o conteudo novo', r2.ok && len2 === len1 + 1);
   const listing = await svc.storage.from(BUCKET).list('', { search: code });
-  check('somente 1 objeto para o codigo', listing.data?.filter((o) => o.name === `${code}.webp`).length === 1);
+  const names = (listing.data ?? []).map((o) => o.name);
+  check('objeto novo existe no bucket', names.includes(p2));
+  // Sem policy de delete para authenticated: a remocao do anterior e ignorada e ele fica no bucket.
+  console.log(`INFO  objeto anterior ${names.includes(p1) ? 'mantido (sem permissao de delete)' : 'removido'}`);
+
+  // remocao do anterior: chamada com o caminho antigo; erro na remocao nao derruba o envio
+  const removed = [];
+  const fake = (removeImpl) => ({
+    from: () => {
+      const q = {
+        select: () => q, eq: () => q,
+        maybeSingle: async () => ({ data: { image_path: 'antigo-1.webp' }, error: null }),
+        update: () => ({ eq: () => ({ select: async () => ({ data: [{ code }], error: null }) }) }),
+      };
+      return q;
+    },
+    storage: { from: () => ({ upload: async () => ({ error: null }), remove: removeImpl }) },
+  });
+  const pf = await uploadExerciseImage(fake(async (paths) => { removed.push(...paths); return { data: [], error: null }; }), code, webp(1));
+  check('remove o objeto anterior depois de gravar o caminho novo', removed.length === 1 && removed[0] === 'antigo-1.webp' && versioned(pf));
+  let threw = false;
+  try { await uploadExerciseImage(fake(async () => { throw new Error('sem delete'); }), code, webp(1)); } catch { threw = true; }
+  check('falha ao remover o anterior e ignorada', !threw);
 } finally {
-  await svc.storage.from(BUCKET).remove([`${code}.webp`]);
+  const left = await svc.storage.from(BUCKET).list('', { search: code });
+  const mine = (left.data ?? []).map((o) => o.name).filter((n) => n === `${code}.webp` || n.startsWith(`${code}-`));
+  if (mine.length) await svc.storage.from(BUCKET).remove(mine);
   await svc.from('exercises').update({ image_path: originalPath ?? null }).eq('code', code);
   await svc.auth.admin.deleteUser(adm.id);
   await svc.auth.admin.deleteUser(normal.id);
